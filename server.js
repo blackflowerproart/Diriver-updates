@@ -2,8 +2,9 @@ const express = require('express');
 const { MongoClient } = require('mongodb');
 const app = express();
 
-// تأكد من استبدال <كلمة_المرور> بكلمة المرور الحقيقية الخاصة بك
-const uri = "mongodb+srv://blackflower:<كلمة_المرور>@blackflower.vetfbrh.mongodb.net/?appName=BlackFlower";
+// رابط الاتصال بالسحابة
+const uri = process.env.MONGO_URI || "mongodb+srv://blackflower:<كلمة_المرور>@blackflower.vetfbrh.mongodb.net/?appName=BlackFlower";
+
 const client = new MongoClient(uri, {
     connectTimeoutMS: 30000,
     serverSelectionTimeoutMS: 30000
@@ -11,7 +12,6 @@ const client = new MongoClient(uri, {
 
 let db;
 
-// دالة اتصال مع إعادة محاولة تلقائية
 async function connectWithRetry() {
     try {
         await client.connect();
@@ -24,17 +24,31 @@ async function connectWithRetry() {
 }
 connectWithRetry();
 
+// دالة البحث المرنة
 app.get('/api/check', async (req, res) => {
     if (!db) {
         return res.status(503).json({ error: "قاعدة البيانات غير متاحة حالياً" });
     }
     try {
         const driverName = req.query.name;
-        const driver = await db.collection('drivers').findOne({ name: driverName });
-        res.json(driver || { hasUpdate: false });
+        if (!driverName) return res.status(400).json({ error: "يجب تحديد اسم الجهاز" });
+
+        // البحث باستخدام Regex لجعل البحث أكثر مرونة (تجاهل حالة الأحرف وتطابق جزئي)
+        // هذا يحل مشكلة المسافات والرموز التي كانت تمنع التطابق الدقيق
+        const driver = await db.collection('drivers').findOne({ 
+            name: { $regex: driverName.trim(), $options: 'i' } 
+        });
+
+        if (driver) {
+            res.json(driver);
+        } else {
+            res.json({ hasUpdate: false });
+        }
     } catch (err) {
-        res.status(500).json({ error: "خطأ أثناء البحث" });
+        console.error("خطأ أثناء البحث:", err);
+        res.status(500).json({ error: "خطأ داخلي في السيرفر" });
     }
 });
 
-app.listen(3000, () => console.log('السيرفر يعمل على المنفذ 3000'));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`السيرفر يعمل على المنفذ ${PORT}`));
